@@ -1,0 +1,214 @@
+### Deploying an Application with Amazon ECS on EC2
+
+In this hands-on, you will learn how to create a complete container orchestration environment with **Amazon ECS** using **EC2** instances. The focus will be on running a Docker application hosted on Docker Hub, using native AWS resources.
+
+### Main steps:
+
+1. **Create an EC2-based ECS Cluster**
+    
+    Configure your infrastructure to support ECS tasks by creating a cluster with EC2 instances.
+    
+2. **Define a customized Task Definition**
+    
+    Register your application based on the `strm/helloworld-http` image, specifying CPU and memory.
+    
+3. **Deploy the application as a Service**
+    
+    Use the task definition created to start the application in the cluster with load balancing.
+    
+4. **Adjust Security Group rules**
+    
+    Release ports **80 (HTTP)** and **22 (SSH)** for access to the application and the instance.
+    
+5. **Testing the application in the browser**
+    
+    After deployment, access the **Application Load Balancer (ALB)** address to check the running application.
+    
+6. **Explore the EC2 instance**
+    
+    Connect via SSH, run Docker commands to inspect the containers and view the contents of the application.
+    
+7. **Shut down resources**
+    
+    Clean up the environment by removing the service and the cluster in the ECS console.
+    
+
+---
+
+**Objective: To** understand the complete deployment cycle of a containerized application on AWS, using ECS with EC2 as the execution infrastructure.
+
+---
+
+<aside>
+💡
+
+This hands-on is essential for understanding how to translate Docker/Compose concepts and commands to the AWS ECS/EC2 framework.
+
+</aside>
+
+## **Step 01 - Create an ECS Cluster on EC2**
+
+- **ECS | Cluster | Create Cluster**
+    - **Cluster name: `mod5-cluster`**
+    - **Infrastructure: `Amazon EC2 instances`**
+        - **AMI: `Amazon Linux 2`**
+        - **EC2 instance type: `t3.micro` ( 1 vCPU 1 GiB Memory)**
+        - **Desired capacity: Min. `2` | Max. `2`**
+        - **SSH Key pair: `humangov-ec2-key`**
+        - **EBS volume size: `30`**
+        - **VPC: `Default`**
+        - **Auto-assign public IP: `Turn on`**
+- ***Create***
+
+<aside>
+💡
+
+After creating the cluster, EC2 instances (nodes) will be provisioned automatically!
+
+We will connect to these instances and execute Docker commands.
+
+</aside>
+
+## **Step 02 - Accessing EC2 from ECS**
+
+<aside>
+💡
+
+**Note that, initially, each instance created has only one private IP address associated with it.**
+
+**After creating the *Task Definition* and the *Service* in the Cluster, the *nodes* now have two private IP addresses associated with them:**
+
+- One referring to the **VPC subnet**,
+- And another belonging to the **containers' internal network**.
+</aside>
+
+- **Open 02 VS Code terminals to access the EC2 instances.**
+- Set the Security Group Default with rules that allow access on ports `22` and `80`.
+
+```bash
+ssh -i humangov-ec2-key.pem ec2-user@public-dns_EC2-node01
+ssh -i humangov-ec2-key.pem ec2-user@public-dns_EC2-node02
+
+docker ps   # Conteiner created by default with 'ecs-agent' component.
+            # Note: Nodes come with Docker installed  
+```
+
+<aside>
+💡
+
+**The `ecs-agent` is the component that runs on each EC2 instance in the ECS cluster and is responsible for communicating with the ECS control plane.**
+
+### What it does
+
+- Registers the instance in the ECS cluster
+- Reports the status of tasks and available resources (CPU, memory, etc.)
+- Receives instructions to start/end tasks (containers)
+- Reports logs and operational metrics to the ECS
+
+---
+
+**Without the ECS Agent, the EC2 instance would not be able to participate in the cluster or receive tasks.**
+
+</aside>
+
+## **Step 03 - Creating a Task Definition for the Application**
+
+- **Task definitions | Create new task definition**
+    - **Task definition family: `webapp`**
+    - **Infrastructure requirements: `Amazon EC2 instances`**
+    - **Task size:**
+        - CPU: `1 vCPU`
+        - Memory: `0.25 GB**(t2.micro` has only 1 GiB Memory)**
+    - **Task execution role: `Create new role`**
+    - **Container:**
+        - Name: `webapp-ctr`
+        - Image URI: `strm/helloworld-http`
+            - Go to [Docker Hub](https://hub.docker.com/r/strm/helloworld-http/) for the details of the Docker image.
+        - **Container port: `80`**
+        - **Port name: `webapp-ctr-80-tcp`**
+    - [ ]  Use log collection (You don't need to select it, it won't be our focus for now.)
+
+**Create**
+
+<aside>
+💡
+
+Making an analogy with Docker, the *Task Definition* in ECS works like a `docker-compose.yml` file: 
+
+Defining how containers should be run, specifying image, ports, environment variables, volumes and other parameters.
+
+</aside>
+
+## **Step 04 - Creating an Application Access Service (Port Map)**
+
+- **ECS | Cluster | Select Cluster**
+- **Task definition family: `webapp`**
+- **Service name: `webapp-svc-mod5`**
+- **Existing cluster: `mod5-cluster`**
+- **Compute options**
+    - **Launch type: `EC2`**
+- **Deployment configuration | Service type**
+    - **Replica**
+        - **Desired tasks: `2`**
+- **Load balancing**
+    - [ * ] Use load balancing
+        - Application Load Balancer
+    - **Load balancer name: `webapp-lb`**
+    - **Target group name: `webapp-tg`**
+
+## **Step 05 - Reviewing created resources**
+
+- **Cluster**
+    - A Cluster can contain several services;
+- **Tasks**
+    - Two tasks created to provide High Availability!
+    - Access one of the tasks and note that it would be executing the "docker inspect" command
+- **Infrastructure**
+    - Container instances created in different availability zones
+- **Service**
+    - **Configuration and Networking**
+        - **Network configuration**
+            - DNS name (use to access the application)
+- **EC2 Instances**
+    - Note that each EC2 node now has two private IPs (Host and Container).
+
+## **Step 06 - Accessing the application**
+
+- Try opening two browser tabs with the same application link:
+    
+    ![image.png](attachment:a7ee5909-ef35-4f5a-8225-0084127d8c68:image.png)
+    
+    ![image.png](attachment:53d613d3-1d5d-460c-82fd-426630c945ff:image.png)
+    
+    <aside>
+    💡
+    
+    The "Round Robin" algorithm is expected to balance the requests equally between the EC2 instances in the ECS cluster.
+    
+    </aside>
+    
+
+## **Step 07 - Exploring Docker Commands on EC2/ECS**
+
+- Run the commands below in both SSH sessions and compare the information.
+    - Note that each instance has its containers with their respective ids.
+
+```bash
+docker ps
+docker images
+docker inspect
+docker exec -it <container_id> bash    
+ls
+cat index.html
+```
+
+## **Step 08 -** Deleting resources
+
+- **ECS | Select**Cluster
+    - Start by deleting the **Service**
+        - Force delete | delete
+    - Then **Task Definition**
+        - Select | Actions >> `Deregister`
+        - Filter status: `Inactive`
+        - Select | Actions >> `Delete`
+    - and finally **Delete Cluster**
