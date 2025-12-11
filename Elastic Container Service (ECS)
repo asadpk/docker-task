@@ -1,214 +1,288 @@
-### Deploying an Application with Amazon ECS on EC2
+How to Deploy an Application with Amazon ECS on EC2
+In this hands-on guide, you'll learn how to set up a complete container management environment using Amazon ECS with EC2 instances. We'll run a Docker application from Docker Hub using AWS resources.
 
-In this hands-on, you will learn how to create a complete container orchestration environment with **Amazon ECS** using **EC2** instances. The focus will be on running a Docker application hosted on Docker Hub, using native AWS resources.
+What You'll Learn:
+How to create an ECS cluster with EC2 instances
 
-### Main steps:
+How to define your application configuration
 
-1. **Create an EC2-based ECS Cluster**
-    
-    Configure your infrastructure to support ECS tasks by creating a cluster with EC2 instances.
-    
-2. **Define a customized Task Definition**
-    
-    Register your application based on the `strm/helloworld-http` image, specifying CPU and memory.
-    
-3. **Deploy the application as a Service**
-    
-    Use the task definition created to start the application in the cluster with load balancing.
-    
-4. **Adjust Security Group rules**
-    
-    Release ports **80 (HTTP)** and **22 (SSH)** for access to the application and the instance.
-    
-5. **Testing the application in the browser**
-    
-    After deployment, access the **Application Load Balancer (ALB)** address to check the running application.
-    
-6. **Explore the EC2 instance**
-    
-    Connect via SSH, run Docker commands to inspect the containers and view the contents of the application.
-    
-7. **Shut down resources**
-    
-    Clean up the environment by removing the service and the cluster in the ECS console.
-    
+How to deploy and access your application
 
----
+How to clean up resources when done
 
-**Objective: To** understand the complete deployment cycle of a containerized application on AWS, using ECS with EC2 as the execution infrastructure.
+Step 1: Create Your ECS Cluster with EC2 Instances
+First, let's create the environment where your application will run:
 
----
+Go to the ECS service in your AWS Console
 
-<aside>
-💡
+Click on Clusters in the left menu
 
-This hands-on is essential for understanding how to translate Docker/Compose concepts and commands to the AWS ECS/EC2 framework.
+Click the Create Cluster button
 
-</aside>
+Choose EC2 Linux + Networking and click Next
 
-## **Step 01 - Create an ECS Cluster on EC2**
+Configure your cluster:
 
-- **ECS | Cluster | Create Cluster**
-    - **Cluster name: `mod5-cluster`**
-    - **Infrastructure: `Amazon EC2 instances`**
-        - **AMI: `Amazon Linux 2`**
-        - **EC2 instance type: `t3.micro` ( 1 vCPU 1 GiB Memory)**
-        - **Desired capacity: Min. `2` | Max. `2`**
-        - **SSH Key pair: `humangov-ec2-key`**
-        - **EBS volume size: `30`**
-        - **VPC: `Default`**
-        - **Auto-assign public IP: `Turn on`**
-- ***Create***
+Cluster name: Enter mod5-cluster
 
-<aside>
-💡
+Infrastructure: Select Amazon EC2 instances
 
-After creating the cluster, EC2 instances (nodes) will be provisioned automatically!
+AMI: Choose Amazon Linux 2
 
-We will connect to these instances and execute Docker commands.
+EC2 instance type: Select t3.micro (this has 1 vCPU and 1GB Memory - it's the smallest and cheapest option)
 
-</aside>
+Number of instances: Set both minimum and maximum to 2 (this gives you redundancy)
 
-## **Step 02 - Accessing EC2 from ECS**
+SSH Key pair: Choose humangov-ec2-key (you should have this from previous exercises)
 
-<aside>
-💡
+EBS volume size: Set to 30 GB
 
-**Note that, initially, each instance created has only one private IP address associated with it.**
+VPC: Keep the default VPC selected
 
-**After creating the *Task Definition* and the *Service* in the Cluster, the *nodes* now have two private IP addresses associated with them:**
+Auto-assign public IP: Turn this ON so you can access the instances
 
-- One referring to the **VPC subnet**,
-- And another belonging to the **containers' internal network**.
-</aside>
+Click Create
 
-- **Open 02 VS Code terminals to access the EC2 instances.**
-- Set the Security Group Default with rules that allow access on ports `22` and `80`.
+What happens next: AWS will automatically create 2 EC2 instances for you. These will act as your "worker nodes" that run your containers.
 
-```bash
-ssh -i humangov-ec2-key.pem ec2-user@public-dns_EC2-node01
-ssh -i humangov-ec2-key.pem ec2-user@public-dns_EC2-node02
+Step 2: Access Your EC2 Instances
+Now let's connect to the instances to see what was created:
 
-docker ps   # Conteiner created by default with 'ecs-agent' component.
-            # Note: Nodes come with Docker installed  
-```
+First, you need to allow access to your instances. Go to the Security Groups section in EC2 and make sure the security group for your instances allows:
 
-<aside>
-💡
+Port 22 (for SSH access)
 
-**The `ecs-agent` is the component that runs on each EC2 instance in the ECS cluster and is responsible for communicating with the ECS control plane.**
+Port 80 (for web access)
 
-### What it does
+Open two terminal windows (you'll connect to both instances)
 
-- Registers the instance in the ECS cluster
-- Reports the status of tasks and available resources (CPU, memory, etc.)
-- Receives instructions to start/end tasks (containers)
-- Reports logs and operational metrics to the ECS
+In the first terminal, connect to your first instance:
 
----
+bash
+ssh -i humangov-ec2-key.pem ec2-user@public-ip-address-of-instance1
+In the second terminal, connect to your second instance:
 
-**Without the ECS Agent, the EC2 instance would not be able to participate in the cluster or receive tasks.**
+bash
+ssh -i humangov-ec2-key.pem ec2-user@public-ip-address-of-instance2
+In both terminals, run:
 
-</aside>
-
-## **Step 03 - Creating a Task Definition for the Application**
-
-- **Task definitions | Create new task definition**
-    - **Task definition family: `webapp`**
-    - **Infrastructure requirements: `Amazon EC2 instances`**
-    - **Task size:**
-        - CPU: `1 vCPU`
-        - Memory: `0.25 GB**(t2.micro` has only 1 GiB Memory)**
-    - **Task execution role: `Create new role`**
-    - **Container:**
-        - Name: `webapp-ctr`
-        - Image URI: `strm/helloworld-http`
-            - Go to [Docker Hub](https://hub.docker.com/r/strm/helloworld-http/) for the details of the Docker image.
-        - **Container port: `80`**
-        - **Port name: `webapp-ctr-80-tcp`**
-    - [ ]  Use log collection (You don't need to select it, it won't be our focus for now.)
-
-**Create**
-
-<aside>
-💡
-
-Making an analogy with Docker, the *Task Definition* in ECS works like a `docker-compose.yml` file: 
-
-Defining how containers should be run, specifying image, ports, environment variables, volumes and other parameters.
-
-</aside>
-
-## **Step 04 - Creating an Application Access Service (Port Map)**
-
-- **ECS | Cluster | Select Cluster**
-- **Task definition family: `webapp`**
-- **Service name: `webapp-svc-mod5`**
-- **Existing cluster: `mod5-cluster`**
-- **Compute options**
-    - **Launch type: `EC2`**
-- **Deployment configuration | Service type**
-    - **Replica**
-        - **Desired tasks: `2`**
-- **Load balancing**
-    - [ * ] Use load balancing
-        - Application Load Balancer
-    - **Load balancer name: `webapp-lb`**
-    - **Target group name: `webapp-tg`**
-
-## **Step 05 - Reviewing created resources**
-
-- **Cluster**
-    - A Cluster can contain several services;
-- **Tasks**
-    - Two tasks created to provide High Availability!
-    - Access one of the tasks and note that it would be executing the "docker inspect" command
-- **Infrastructure**
-    - Container instances created in different availability zones
-- **Service**
-    - **Configuration and Networking**
-        - **Network configuration**
-            - DNS name (use to access the application)
-- **EC2 Instances**
-    - Note that each EC2 node now has two private IPs (Host and Container).
-
-## **Step 06 - Accessing the application**
-
-- Try opening two browser tabs with the same application link:
-    
-    ![image.png](attachment:a7ee5909-ef35-4f5a-8225-0084127d8c68:image.png)
-    
-    ![image.png](attachment:53d613d3-1d5d-460c-82fd-426630c945ff:image.png)
-    
-    <aside>
-    💡
-    
-    The "Round Robin" algorithm is expected to balance the requests equally between the EC2 instances in the ECS cluster.
-    
-    </aside>
-    
-
-## **Step 07 - Exploring Docker Commands on EC2/ECS**
-
-- Run the commands below in both SSH sessions and compare the information.
-    - Note that each instance has its containers with their respective ids.
-
-```bash
+bash
 docker ps
+You'll see a container running called ecs-agent. This is important - it's what allows the instance to communicate with ECS.
+
+Important note: Each EC2 instance will eventually have two private IP addresses:
+
+One for the instance itself (in your VPC)
+
+One for the container network (where your application will run)
+
+Step 3: Define Your Application Configuration
+Think of this step like creating a recipe for how your application should run:
+
+Go back to ECS in your AWS Console
+
+Click on Task Definitions in the left menu
+
+Click Create new Task Definition
+
+Choose EC2 and click Next step
+
+Configure your task definition:
+
+Task Definition Name: Enter webapp
+
+Task Role: Choose Create new role (ECS will create this for you)
+
+Task memory: Set to 0.25 GB (250MB - remember, our t3.micro only has 1GB total)
+
+Task CPU: Set to 1 vCPU
+
+Now add your container:
+
+Click Add container
+
+Container name: Enter webapp-ctr
+
+Image: Enter strm/helloworld-http
+
+This is a simple "Hello World" web application from Docker Hub
+
+Port mappings: Click Add
+
+Container port: Enter 80
+
+Protocol: Keep as tcp
+
+Click Add to add the container
+
+Click Create
+
+What this does: You've just created a blueprint that says "run this specific Docker image on port 80, with these resources."
+
+Step 4: Deploy Your Application as a Service
+Now let's actually run your application:
+
+Go to your cluster (mod5-cluster) in ECS
+
+Click on the Services tab
+
+Click Create
+
+Configure your service:
+
+Launch type: Select EC2
+
+Task Definition: Choose the webapp family and the latest revision
+
+Service name: Enter webapp-svc-mod5
+
+Number of tasks: Set to 2 (this means run 2 copies of your application)
+
+Deployment type: Keep as Rolling update
+
+Important - Set up load balancing:
+
+Check the box Enable load balancing
+
+Select Application Load Balancer
+
+Load balancer name: Enter webapp-lb
+
+Target group name: Enter webapp-tg
+
+This creates a traffic distributor that will send users to your application
+
+Click Create Service
+
+What happens: ECS will now deploy your application. It will:
+
+Start 2 containers (one on each EC2 instance)
+
+Create a load balancer to distribute traffic
+
+Register your containers with the load balancer
+
+Step 5: Check What Was Created
+After a few minutes, everything should be running. Let's check:
+
+In your cluster, click on the Tasks tab - you should see 2 running tasks
+
+Click on one of the tasks, then click on the container ID - you can see details about your running container
+
+Go to the Services tab and click on your service - you'll see the load balancer details including a DNS name (this is your application's address)
+
+In the EC2 Console, check your instances - each should now have two private IPs
+
+Step 6: Access Your Application
+This is the fun part - let's see your application working:
+
+Go to your ECS service details
+
+Find the Load Balancer DNS name (it will look something like webapp-lb-123456.us-east-1.elb.amazonaws.com)
+
+Copy this address and paste it into your web browser
+
+You should see a "Hello World" page
+
+Try this: Open two browser tabs with the same address. Refresh them a few times. You might notice the hostname change - that's because the load balancer is sending your requests to different containers on different EC2 instances. This is called "round robin" load balancing and it helps distribute the load.
+
+Step 7: Explore Your Containers
+Let's go back to your terminals and look at what's running:
+
+In both of your SSH sessions (to both EC2 instances), run:
+
+bash
+docker ps
+You'll see your helloworld-http container running on each instance.
+
+Look at the Docker images:
+
+bash
 docker images
-docker inspect
-docker exec -it <container_id> bash    
+Get details about a container (replace container_id with your actual container ID):
+
+bash
+docker inspect container_id
+Even go inside a container:
+
+bash
+docker exec -it container_id bash
 ls
 cat index.html
-```
+exit
+You'll notice each instance has its own containers with different IDs. This shows how ECS is managing your application across multiple servers.
 
-## **Step 08 -** Deleting resources
+Step 8: Clean Up Resources
+Important: Always clean up resources you're not using to avoid unnecessary charges.
 
-- **ECS | Select**Cluster
-    - Start by deleting the **Service**
-        - Force delete | delete
-    - Then **Task Definition**
-        - Select | Actions >> `Deregister`
-        - Filter status: `Inactive`
-        - Select | Actions >> `Delete`
-    - and finally **Delete Cluster**
+Clean up in this order:
+
+Delete the Service:
+
+Go to your cluster in ECS
+
+Click on the Services tab
+
+Select your webapp-svc-mod5 service
+
+Click Delete
+
+Check Force delete and confirm
+
+Delete the Task Definition:
+
+Go to Task Definitions in ECS
+
+Find your webapp task definition
+
+Select it and click Deregister
+
+Now filter for Inactive task definitions
+
+Select the inactive webapp definition and click Delete
+
+Delete the Cluster:
+
+Go back to Clusters
+
+Select your mod5-cluster
+
+Click Delete Cluster
+
+Confirm the deletion
+
+Clean up other resources:
+
+Go to EC2 Load Balancers and delete webapp-lb
+
+Go to EC2 Target Groups and delete webapp-tg
+
+The EC2 instances will be automatically terminated when you delete the cluster
+
+What You've Accomplished:
+✅ Created a scalable environment (ECS cluster) with 2 EC2 instances
+
+✅ Defined how your application should run (Task Definition)
+
+✅ Deployed your application with high availability (Service)
+
+✅ Set up load balancing for traffic distribution
+
+✅ Accessed and tested your running application
+
+✅ Explored the underlying containers
+
+✅ Learned how to properly clean up
+
+Key Concepts to Remember:
+Cluster: A group of EC2 instances that run your containers
+
+Task Definition: The "recipe" for how to run your container
+
+Service: Keeps your application running and manages scaling
+
+Load Balancer: Distributes traffic to your containers
+
+ECS Agent: The software on each EC2 instance that communicates with ECS
+
+This hands-on experience shows you how Docker concepts translate to the AWS cloud environment. You've now deployed a real, accessible application using professional container management tools!
